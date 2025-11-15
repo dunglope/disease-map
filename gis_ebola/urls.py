@@ -18,9 +18,11 @@ from django.contrib import admin
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 
-from data_upload.views import UploadCSVView
+from data_upload.views import GISDataView, UploadCSVView, GISAnalysisView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('upload/', csrf_exempt(UploadCSVView.as_view()))
+    path('upload/', csrf_exempt(UploadCSVView.as_view())),
+    path('api/gis/', GISDataView.as_view(), name='gis-data'),
+    path('api/gis-analysis/', GISAnalysisView.as_view()),
 ]
