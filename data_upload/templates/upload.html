@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Upload Dataset - DiseaseGIS{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow-lg border-0">
+                <div class="card-header bg-primary text-white text-center py-4">
+                    <h2 class="mb-0">Upload New Disease Dataset</h2>
+                </div>
+                <div class="card-body p-5">
+                    <form id="uploadForm" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">CSV File <span class="text-danger">*</span></label>
+                            <input type="file" class="form-control form-control-lg" id="csv_file" accept=".csv" required>
+                            <div class="form-text">
+                                Required columns: <code>date</code>, <code>country</code>, and <code>cases</code> or <code>deaths</code>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">Dataset Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control form-control-lg" id="dataset_name" 
+                                   placeholder="e.g. covid19_vietnam, zika_2016" required>
+                            <div class="form-text">
+                                This name will be used to filter data on the map
+                            </div>
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-success btn-lg">
+                                Upload & Process Dataset
+                            </button>
+                        </div>
+                    </form>
+
+                    <div id="uploadStatus" class="mt-4"></div>
+                </div>
+            </div>
+
+            <div class="text-center mt-4">
+                <a href="/map/" class="btn btn-outline-primary btn-lg">
+                    Go to Interactive Map
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/upload.js' %}"></script>
+<script>
+// Auto-reload map page after successful upload
+document.getElementById('uploadForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    // ... (same upload logic from upload.js)
+    // After success:
+    if (result.status === 'success') {
+        statusDiv.innerHTML = `<div class="alert alert-success">
+            Success! Dataset "${result.dataset}" uploaded.<br>
+            <strong>Redirecting to map in 3 seconds...</strong>
+        </div>`;
+        setTimeout(() => window.location.href = '/map/', 3000);
+    }
+});
+</script>
+{% endblock %}

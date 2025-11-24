@@ -18,11 +18,18 @@ from django.contrib import admin
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 
-from data_upload.views import GISDataView, UploadCSVView, GISAnalysisView
+from django.views.generic import TemplateView
+from data_upload.views import GISDataView, UploadCSVView, GISAnalysisView, MapView, upload_csv
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('upload/', csrf_exempt(UploadCSVView.as_view())),
+    path('', TemplateView.as_view(template_name='index.html'), name='home'),
+    path('upload/', TemplateView.as_view(template_name='upload.html'), name='upload'),
+    # path('api/upload/', csrf_exempt(UploadCSVView.as_view()), name='api-upload'),
     path('api/gis/', GISDataView.as_view(), name='gis-data'),
     path('api/gis-analysis/', GISAnalysisView.as_view()),
+    path('map/', MapView.as_view(), name='map'),
+    path('upload-waiting/', TemplateView.as_view(template_name='upload_waiting.html'), name='upload-waiting'),
+    
+    path('api/upload/', csrf_exempt(upload_csv), name='api-upload'),
 ]

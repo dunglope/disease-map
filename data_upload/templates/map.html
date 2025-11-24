@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Interactive Map - DiseaseGIS{% endblock %}
+
+{% block extra_css %}
+<style>
+    #map { height: 700px; border-radius: 12px; box-shadow: 0 8px 25px rgba(0,0,0,0.15); }
+    .control-panel { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h2 class="text-center my-4 text-primary">Global Disease Outbreak Interactive Map</h2>
+    
+    <div class="control-panel mb-3">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <a href="/upload/" class="btn btn-success w-100">Upload New Dataset</a>
+            </div>
+            <div class="col-md-8">
+                <small class="text-muted">
+                    Current dataset: <strong id="currentDataset">All datasets</strong>
+                </small>
+            </div>
+        </div>
+    </div>
+
+    <div id="map"></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="{% static 'js/map.js' %}"></script>
+{% endblock %}

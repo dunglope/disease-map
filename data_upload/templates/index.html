@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}DiseaseGIS - Global Disease Outbreak Dashboard{% endblock %}
+
+{% block content %}
+<!-- Hero -->
+<section class="hero">
+    <div class="container">
+        <h1>DiseaseGIS</h1>
+        <p class="lead">
+            Interactive Web GIS Dashboard for Monitoring and Analyzing Global Disease Outbreaks
+        </p>
+        <div class="mt-4">
+            <a href="/map/" class="btn btn-light btn-lg px-5 py-3 me-3">Open Interactive Map</a>
+            <a href="/upload/" class="btn btn-outline-light btn-lg px-5 py-3">Upload Data</a>
+        </div>
+        <p class="mt-4 small opacity-75">
+            Ebola • COVID-19 • Zika • Dengue • Influenza and more
+        </p>
+    </div>
+</section>
+
+<!-- Features -->
+<section class="py-5">
+    <div class="container py-5">
+        <div class="text-center mb-5">
+            <h2 class="fw-bold">Key Features</h2>
+        </div>
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="feature-card">
+                    <div class="feature-icon">🗺️</div>
+                    <h5>Interactive Map</h5>
+                    <p>Explore disease spread with beautiful choropleth maps and time filters</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h5>Data Upload</h5>
+                    <p>Easily upload any CSV dataset with automatic country matching</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h5>Real-time Analysis</h5>
+                    <p>Instant updates and density calculations after upload</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+    <div class="container">
+        <h2>Ready to Explore Global Health Data?</h2>
+        <p class="lead text-muted mb-4">Start using the dashboard now — completely free and open source</p>
+        <a href="/map/" class="btn btn-primary btn-lg px-5">Launch Dashboard</a>
+    </div>
+</section>
+{% endblock %}
