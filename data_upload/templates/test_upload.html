@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test CSV Upload</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        textarea { width: 100%; height: 400px; font-family: monospace; }
+        button { padding: 10px 20px; font-size: 16px; margin: 10px 0; }
+        .result { background: #f0f0f0; padding: 15px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>CSV Upload Debugger</h1>
+    
+    <input type="file" id="csvFile" accept=".csv">
+    <button onclick="testUpload()">Test Upload</button>
+    
+    <div class="result" id="result"></div>
+    
+    <script>
+        async function testUpload() {
+            const file = document.getElementById('csvFile').files[0];
+            if (!file) {
+                alert('Please select a file');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('csv_file', file);
+            
+            document.getElementById('result').innerHTML = 'Uploading...';
+            
+            try {
+                const response = await fetch('/api/test-upload/', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                document.getElementById('result').innerHTML = `
+                    <h3>Results:</h3>
+                    <pre>${JSON.stringify(result, null, 2)}</pre>
+                    
+                    <h3>Analysis:</h3>
+                    <p><strong>File name:</strong> ${result.file_name}</p>
+                    <p><strong>File size:</strong> ${result.file_size_bytes} bytes (${(result.file_size_bytes / 1024).toFixed(2)} KB)</p>
+                    <p><strong>Raw line count:</strong> ${result.raw_line_count}</p>
+                    <p><strong>Pandas rows:</strong> ${result.pandas_rows}</p>
+                    ${result.pandas_rows < 3000 && result.file_size_bytes > 100000 ? 
+                        '<p style="color: red; font-weight: bold;">⚠️ WARNING: File is large but only reading ~2k rows - Django may be truncating!</p>' : ''}
+                `;
+            } catch (err) {
+                document.getElementById('result').innerHTML = `
+                    <h3>Error:</h3>
+                    <pre>${err}</pre>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>
+```

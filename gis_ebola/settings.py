@@ -132,3 +132,11 @@ GDAL_LIBRARY_PATH = r"C:\Users\Admin\AppData\Roaming\Python\Python312\site-packa
 GEOS_LIBRARY_PATH = r"C:\Users\Admin\AppData\Roaming\Python\Python312\site-packages\osgeo\geos_c.dll"
 
 
+# File Upload Settings - Allow large CSV uploads
+DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880000  # 5000 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5242880000  # 5000 MB
+
+# Increase number of POST fields (for very wide CSVs)
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 20000  # Default is 1000
+
+
