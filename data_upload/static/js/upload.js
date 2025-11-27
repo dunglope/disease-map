@@ -72,9 +72,141 @@
 function initUploadForm() {
     const form = document.getElementById('uploadForm');
     const statusDiv = document.getElementById('uploadStatus');
+    const csvFileInput = document.getElementById('csv_file');
+    const columnMappingSection = document.getElementById('columnMappingSection');
+    const columnError = document.getElementById('columnError');
 
     if (!form || !statusDiv) return;
 
+    // Handle CSV file selection - detect columns automatically
+    csvFileInput.addEventListener('change', async function() {
+        const file = this.files[0];
+        if (!file) {
+            columnMappingSection.style.display = 'none';
+            return;
+        }
+
+        try {
+            // Send file to backend to detect columns
+            const formData = new FormData();
+            formData.append('csv_file', file);
+
+            const response = await fetch('/api/detect-columns/', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                }
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.columns) {
+                // Populate all column dropdowns
+                populateColumnDropdowns(result.columns);
+                
+                // Show sample data
+                if (result.sample_data) {
+                    showSampleData(result.columns, result.sample_data);
+                }
+                
+                // Show mapping section
+                columnMappingSection.style.display = 'block';
+                columnError.style.display = 'none';
+
+                // Try to auto-detect common column names
+                autoDetectColumns(result.columns);
+            } else {
+                columnError.textContent = result.error || 'Failed to detect columns';
+                columnError.style.display = 'block';
+                columnMappingSection.style.display = 'none';
+            }
+        } catch (err) {
+            console.error('Column detection failed:', err);
+            columnError.textContent = 'Error reading CSV file: ' + err.message;
+            columnError.style.display = 'block';
+            columnMappingSection.style.display = 'none';
+        }
+    });
+
+    // Populate column dropdowns with available columns
+    function populateColumnDropdowns(columns) {
+        const dropdowns = ['date_col', 'country_col', 'cases_col', 'deaths_col'];
+        
+        dropdowns.forEach(dropdownId => {
+            const select = document.getElementById(dropdownId);
+            // Keep the default option
+            const defaultOption = select.querySelector('option');
+            select.innerHTML = defaultOption.outerHTML;
+            
+            // Add all detected columns
+            columns.forEach(col => {
+                const option = document.createElement('option');
+                option.value = col;
+                option.textContent = col;
+                select.appendChild(option);
+            });
+        });
+    }
+
+    // Auto-detect columns based on common naming patterns
+    function autoDetectColumns(columns) {
+        const datePatterns = ['date', 'time', 'datetime', 'timestamp', 'day', 'year', 'month'];
+        const countryPatterns = ['country', 'nation', 'region', 'location', 'area', 'province', 'state'];
+        const casesPatterns = ['case', 'cases', 'confirmed', 'total', 'count', 'incidents'];
+        const deathsPatterns = ['death', 'deaths', 'died', 'mortality', 'fatal'];
+
+        function findBestMatch(patterns) {
+            const lowerColumns = columns.map(c => c.toLowerCase());
+            for (let pattern of patterns) {
+                const match = lowerColumns.find(col => col.includes(pattern));
+                if (match) return columns[lowerColumns.indexOf(match)];
+            }
+            return '';
+        }
+
+        document.getElementById('date_col').value = findBestMatch(datePatterns);
+        document.getElementById('country_col').value = findBestMatch(countryPatterns);
+        document.getElementById('cases_col').value = findBestMatch(casesPatterns);
+        document.getElementById('deaths_col').value = findBestMatch(deathsPatterns);
+    }
+
+    // Show sample data for selected columns
+    function showSampleData(columns, sampleData) {
+        const fields = ['date_col', 'country_col', 'cases_col', 'deaths_col'];
+        
+        fields.forEach(fieldId => {
+            const select = document.getElementById(fieldId);
+            const sampleDiv = document.getElementById(fieldId.replace('_col', '_sample'));
+            
+            select.addEventListener('change', function() {
+                if (this.value && sampleData[this.value]) {
+                    const values = sampleData[this.value];
+                    if (Array.isArray(values) && values.length > 0) {
+                        sampleDiv.innerHTML = `<strong>Sample:</strong> ${values.join(' | ')}`;
+                    } else if (Array.isArray(values) && values.length === 0) {
+                        sampleDiv.innerHTML = `<small class="text-muted">No sample data (all nulls)</small>`;
+                    } else {
+                        sampleDiv.innerHTML = '';
+                    }
+                } else {
+                    sampleDiv.innerHTML = '';
+                }
+            });
+
+            // Show initial sample
+            if (select.value && sampleData[select.value]) {
+                const values = sampleData[select.value];
+                if (Array.isArray(values) && values.length > 0) {
+                    sampleDiv.innerHTML = `<strong>Sample:</strong> ${values.join(' | ')}`;
+                } else if (Array.isArray(values) && values.length === 0) {
+                    sampleDiv.innerHTML = `<small class="text-muted">No sample data (all nulls)</small>`;
+                }
+            }
+        });
+    }
+
+    // Form submission
     form.addEventListener('submit', async function(e) {
         e.preventDefault();
 
@@ -90,97 +222,86 @@ function initUploadForm() {
             return;
         }
 
+        // Check if column mapping is required but not selected
+        if (columnMappingSection.style.display !== 'none') {
+            const dateCol = document.getElementById('date_col').value;
+            const countryCol = document.getElementById('country_col').value;
+            const casesCol = document.getElementById('cases_col').value;
+
+            if (!dateCol || !countryCol || !casesCol) {
+                statusDiv.innerHTML = '<div class="alert alert-danger">Please select all required columns (Date, Country, Cases)</div>';
+                return;
+            }
+        }
+
         const file = fileInput.files[0];
+        const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
         
-        // === CRITICAL DEBUG: Check file in browser ===
-        console.log('=== BROWSER FILE DEBUG ===');
-        console.log('File name:', file.name);
-        console.log('File size:', file.size, 'bytes');
-        console.log('File type:', file.type);
-        console.log('Last modified:', file.lastModified);
-        
-        // Read the ENTIRE file content in browser to count rows
-        const fileContent = await file.text();
-        const lines = fileContent.split('\n');
-        const rowCount = lines.filter(line => line.trim()).length;
-        
-        console.log('Browser read FULL file:');
-        console.log('- Total lines:', lines.length);
-        console.log('- Non-empty lines:', rowCount);
-        console.log('- First line:', lines[0]);
-        console.log('- Last line:', lines[lines.length - 2]); // -2 because last might be empty
-        console.log('- File ends with:', fileContent.slice(-100));
-        console.log('==========================');
-        
-        // Show this info to user
+        // Show upload starting
         statusDiv.innerHTML = `
             <div class="alert alert-info">
-                <strong>File detected in browser:</strong><br>
-                Name: ${file.name}<br>
-                Size: ${file.size} bytes (${(file.size / 1024).toFixed(2)} KB)<br>
-                Rows detected: <strong>${rowCount}</strong><br>
-                <small>Now uploading to server...</small>
-            </div>`;
-        
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 sec
-
-        const formData = new FormData();
-        formData.append('csv_file', file); // Using original file object
-        formData.append('dataset_name', nameInput.value.trim().toLowerCase().replace(/\s+/g, '_'));
-
-        statusDiv.innerHTML = `
-            <div class="alert alert-info">
-                <strong>Uploading ${rowCount} rows...</strong><br>
+                <strong>📤 Uploading: ${file.name}</strong><br>
+                Size: ${fileSizeMB} MB<br>
                 <div class="progress mt-3" style="height: 32px;">
                     <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" style="width: 100%">
-                        Please wait...
+                        Uploading to server...
                     </div>
                 </div>
             </div>`;
 
+        const formData = new FormData();
+        formData.append('csv_file', file);
+        formData.append('dataset_name', nameInput.value.trim().toLowerCase().replace(/\s+/g, '_'));
+        
+        // Add column mappings
+        formData.append('date_col', document.getElementById('date_col').value);
+        formData.append('country_col', document.getElementById('country_col').value);
+        formData.append('cases_col', document.getElementById('cases_col').value);
+        const deathsCol = document.getElementById('deaths_col').value;
+        if (deathsCol) formData.append('deaths_col', deathsCol);
+
+        const uploadStartTime = Date.now();
+
         try {
+            // ⚡ Send to optimized endpoint with keepalive for large files
             const response = await fetch('/api/upload/', {
                 method: 'POST',
                 body: formData,
                 headers: {
                     'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
-                }
+                },
+                keepalive: true  // Prevents connection drops on large uploads
             });
 
-            let result;
-            try {
-                result = await response.json();
-            } catch (parseErr) {
-                console.error("JSON parse error:", parseErr);
-                statusDiv.innerHTML = '<div class="alert alert-danger">Server returned invalid response</div>';
-                return;
-            }
-
-            console.log('Server response:', result);
+            const result = await response.json();
+            const uploadTime = ((Date.now() - uploadStartTime) / 1000).toFixed(2);
 
             if (response.ok && result.status === 'success') {
-                const serverRows = result.imported || result.total_rows || 'unknown';
-                const mismatch = serverRows !== rowCount;
+                const rowsPerSec = (result.imported / uploadTime).toFixed(0);
                 
                 statusDiv.innerHTML = `
-                    <div class="alert ${mismatch ? 'alert-warning' : 'alert-success'} text-center">
-                        <h5>Upload Complete!</h5>
-                        Browser detected: <strong>${rowCount}</strong> rows<br>
-                        Server imported: <strong>${serverRows}</strong> rows<br>
-                        ${mismatch ? '<span style="color: red;">⚠️ MISMATCH DETECTED!</span><br>' : ''}
-                        Dataset: <strong>${result.dataset}</strong><br><br>
-                        <a href="/map/?dataset=${result.dataset}" class="btn btn-primary btn-lg">View Interactive Map</a>
+                    <div class="alert alert-success">
+                        <h5>✅ Upload Complete!</h5>
+                        <strong>${result.imported.toLocaleString()}</strong> rows imported<br>
+                        <small>${result.skipped || 0} rows skipped</small><br>
+                        <strong>Time:</strong> ${uploadTime}s (${rowsPerSec} rows/sec)<br>
+                        <strong>Dataset:</strong> ${result.dataset}<br><br>
+                        <a href="/map/?dataset=${result.dataset}" class="btn btn-primary">
+                            📍 View on Interactive Map
+                        </a>
                     </div>`;
+                
                 fileInput.value = '';
                 nameInput.value = '';
+                columnMappingSection.style.display = 'none';
                 if (typeof loadMapData === 'function') loadMapData();
             } else {
                 const errorMsg = result.error || 'Unknown error';
-                statusDiv.innerHTML = `<div class="alert alert-danger">Error: ${errorMsg}</div>`;
+                statusDiv.innerHTML = `<div class="alert alert-danger">❌ Error: ${errorMsg}</div>`;
             }
         } catch (err) {
             console.error("Upload failed:", err);
-            statusDiv.innerHTML = '<div class="alert alert-danger">Connection failed. Please try again.</div>';
+            statusDiv.innerHTML = `<div class="alert alert-danger">❌ Connection failed: ${err.message}</div>`;
         }
     });
 }

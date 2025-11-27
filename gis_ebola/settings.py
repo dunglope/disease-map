@@ -25,7 +25,10 @@ SECRET_KEY = 'django-insecure-5e*08dvj5)^tu=4uru!n0@qb8$m*6ged0ytycehprx+dwtjx#1
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "away-sphereless-scarlette.ngrok-free.dev",
+    "localhost",
+]
 
 
 # Application definition
@@ -82,7 +85,14 @@ DATABASES = {
         'USER': 'postgres',
         'PASSWORD': 'Dung.io2',
         'HOST': 'localhost',
-        'PORT': '5432'
+        'PORT': '5432',
+        'CONN_MAX_AGE': 0,  # Don't reuse connections (prevents stale connections after crashes)
+        'AUTOCOMMIT': True,  # Commit each query immediately
+        'OPTIONS': {
+            'connect_timeout': 30,  # Increase connection timeout
+            'keepalives': 1,
+            'keepalives_idle': 60,
+        }
     }
 }
 

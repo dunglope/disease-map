@@ -21,6 +21,45 @@
                                 Required columns: <code>date</code>, <code>country</code>, and <code>cases</code> or <code>deaths</code>
                             </div>
                         </div>
+
+                        <!-- Column Mapping Section (hidden until CSV is selected) -->
+                        <div id="columnMappingSection" style="display: none;">
+                            <hr class="my-4">
+                            <h5 class="mb-3">Map CSV Columns to Data Fields</h5>
+                            
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Date Column <span class="text-danger">*</span></label>
+                                <select class="form-select form-select-lg" id="date_col" required>
+                                    <option value="">-- Select column --</option>
+                                </select>
+                                <div id="date_sample" class="form-text mt-2"></div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Country Column <span class="text-danger">*</span></label>
+                                <select class="form-select form-select-lg" id="country_col" required>
+                                    <option value="">-- Select column --</option>
+                                </select>
+                                <div id="country_sample" class="form-text mt-2"></div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Cases Column <span class="text-danger">*</span></label>
+                                <select class="form-select form-select-lg" id="cases_col" required>
+                                    <option value="">-- Select column --</option>
+                                </select>
+                                <div id="cases_sample" class="form-text mt-2"></div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">Deaths Column (optional)</label>
+                                <select class="form-select form-select-lg" id="deaths_col">
+                                    <option value="">-- Select column (optional) --</option>
+                                </select>
+                                <div id="deaths_sample" class="form-text mt-2"></div>
+                            </div>
+                        </div>
+
                         <div class="mb-4">
                             <label class="form-label fw-bold">Dataset Name <span class="text-danger">*</span></label>
                             <input type="text" class="form-control form-control-lg" id="dataset_name"
@@ -29,6 +68,9 @@
                                 This name will be used to filter data on the map
                             </div>
                         </div>
+
+                        <div id="columnError" class="alert alert-warning" style="display: none;"></div>
+
                         <div class="d-grid">
                             <button type="submit" class="btn btn-success btn-lg">
                                 Upload & Process Dataset

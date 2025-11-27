@@ -19,7 +19,7 @@ from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 
 from django.views.generic import TemplateView
-from data_upload.views import GISDataView, UploadCSVView, GISAnalysisView, MapView, upload_csv, test_upload
+from data_upload.views import GISDataView, UploadCSVView, GISAnalysisView, MapView, upload_csv, test_upload, detect_csv_columns
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -32,6 +32,7 @@ urlpatterns = [
     path('upload-waiting/', TemplateView.as_view(template_name='upload_waiting.html'), name='upload-waiting'),
     
     path('api/upload/', csrf_exempt(upload_csv), name='api-upload'),
+    path('api/detect-columns/', csrf_exempt(detect_csv_columns), name='detect-columns'),
 
 
 #===================below is the code for debugging upload issues, remove later=========================
