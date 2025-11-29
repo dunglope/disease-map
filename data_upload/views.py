@@ -3,22 +3,15 @@ import json
 import logging
 import pandas as pd
 from django.views import View
-from django.http import JsonResponse, StreamingHttpResponse
-from django.db import connection, transaction
+from django.http import JsonResponse
+from django.db import connection
 from django.shortcuts import render
 from django.contrib.gis.geos import GEOSGeometry, MultiPolygon
 from django.db.models import Q, Sum
 from django.db.models.functions import ExtractYear
-from django.contrib.gis.db.models.functions import Area
 from .models import DiseaseData
 
-# for debugging
-import logging
 logger = logging.getLogger(__name__)
-
-class UploadCSVView(View):
-    """Deprecated - use the optimized upload_csv() function instead"""
-    pass
         
 class GISDataView(View):
     def get(self, request):
@@ -141,96 +134,7 @@ def detect_csv_columns(request):
         logger.error(f"Error detecting columns: {e}")
         return JsonResponse({'error': f'Failed to read CSV: {str(e)}'}, status=400)
     
-# def upload_csv(request):
-#     if request.method != 'POST':
-#         return JsonResponse({'error': 'Method Not Allowed'}, status=405)
 
-#     file = request.FILES.get('csv_file')
-#     dataset_name = request.POST.get('dataset_name', '').strip()
-
-#     if not file or not dataset_name:
-#         return JsonResponse({'error': 'Missing file or dataset name'}, status=400)
-
-#     try:
-#         df = pd.read_csv(file)
-
-#         # Auto-detect columns
-#         country_col = next((c for c in df.columns if 'country' in c.lower()), None)
-#         value_col = next((c for c in df.columns if any(x in c.lower() for x in ['case', 'death', 'value', 'cumulative'])), None)
-#         date_col = next((c for c in df.columns if any(x in c.lower() for x in ['date', 'year', 'time'])), None)
-
-#         if not country_col or not value_col:
-#             return JsonResponse({'error': 'CSV must contain country and cases/deaths column'}, status=400)
-
-#         # Pre-fetch all geometries once (HUGE performance boost)
-#         geometry_cache = {}
-#         unique_countries = df[country_col].dropna().unique()
-        
-#         with connection.cursor() as cur:
-#             for country in unique_countries:
-#                 country = str(country).strip()
-#                 cur.execute("""
-#                     SELECT geom FROM world_countries 
-#                     WHERE lower(name) = lower(%s) 
-#                        OR lower(name_en) = lower(%s) 
-#                        OR lower(adm0_a3) = lower(%s)
-#                     LIMIT 1
-#                 """, [country, country, country])
-#                 geom_row = cur.fetchone()
-                
-#                 if geom_row:
-#                     geometry_cache[country.lower()] = GEOSGeometry(geom_row[0], srid=4326)
-#                 else:
-#                     geometry_cache[country.lower()] = GEOSGeometry('MULTIPOLYGON EMPTY', srid=4326)
-
-#         # Prepare bulk insert list
-#         records_to_create = []
-        
-#         for _, row in df.iterrows():
-#             country = str(row[country_col]).strip()
-            
-#             try:
-#                 cases = int(float(row[value_col]))
-#             except:
-#                 cases = 0
-
-#             date_val = pd.to_datetime(row[date_col], errors='coerce') if date_col and pd.notna(row[date_col]) else pd.Timestamp('2020-01-01')
-#             if pd.isna(date_val):
-#                 date_val = pd.Timestamp('2020-01-01')
-
-#             # Get geometry from cache
-#             geom = geometry_cache.get(country.lower(), GEOSGeometry('MULTIPOLYGON EMPTY', srid=4326))
-
-#             # Add to bulk list instead of creating immediately
-#             records_to_create.append(
-#                 DiseaseData(
-#                     dataset_type=dataset_name,
-#                     date=date_val.date(),
-#                     country=country,
-#                     cases=cases,
-#                     geom=geom
-#                 )
-#             )
-
-#         # Bulk create all records at once (FAST!)
-#         DiseaseData.objects.bulk_create(records_to_create, batch_size=1000)
-#         imported = len(records_to_create)
-
-#         return JsonResponse({
-#             'status': 'success',
-#             'imported': imported,
-#             'dataset': dataset_name
-#         })
-
-#     except Exception as e:
-#         return JsonResponse({'error': f'Upload failed: {str(e)}'}, status=500)
-
-
-
-
-
-
-#===================below is the code for debugging upload issues, remove later=========================
 
 def upload_csv(request):
     """
@@ -441,14 +345,5 @@ def upload_csv(request):
 
     except Exception as e:
         logger.error(f"❌ Upload failed: {e}", exc_info=True)
-        # Close any hanging connections
         connection.close()
         return JsonResponse({'error': f'Upload failed: {str(e)}'}, status=500)
-
-    
-def test_upload(request):
-    """Simple check to see if file reaches server intact"""
-    if request.method != 'POST': return JsonResponse({'error': '405'}, status=405)
-    file = request.FILES.get('csv_file')
-    if not file: return JsonResponse({'error': 'No file'}, status=400)
-    return JsonResponse({'received_name': file.name, 'size': file.size})
