@@ -7,11 +7,67 @@ from django.http import JsonResponse
 from django.db import connection
 from django.shortcuts import render
 from django.contrib.gis.geos import GEOSGeometry, MultiPolygon
-from django.db.models import Q, Sum
-from django.db.models.functions import ExtractYear
+from django.db.models import Q, Sum, Count, FloatField
+from django.db.models.functions import ExtractYear, Coalesce, ExtractMonth
 from .models import DiseaseData
 
 logger = logging.getLogger(__name__)
+
+class GISStatsView(View):
+    def get(self, request):
+        dataset = request.GET.get('dataset', 'ebola')
+        start_date = request.GET.get('start_date')  # e.g., "2020-01-01"
+        end_date = request.GET.get('end_date')      # e.g., "2020-12-31"
+
+        base_qs = DiseaseData.objects.filter(dataset_type=dataset)
+        if start_date:
+            base_qs = base_qs.filter(date__gte=start_date)
+        if end_date:
+            base_qs = base_qs.filter(date__lte=end_date)
+
+        # === Global stats ===
+        stats_agg = base_qs.aggregate(
+            total_cases=Coalesce(Sum('cases'), 0),
+            total_deaths=Coalesce(Sum('deaths'), 0),
+            countries=Count('country', distinct=True)
+        )
+        cfr = round(stats_agg['total_deaths'] / stats_agg['total_cases'] * 100, 2) if stats_agg['total_cases'] else 0
+        avg_per_country = round(stats_agg['total_cases'] / stats_agg['countries'], 2) if stats_agg['countries'] else 0
+
+        # === Monthly cases for selected year (12 months) ===
+        monthly = base_qs.annotate(
+            month=ExtractMonth('date')
+        ).values('month').annotate(cases=Sum('cases')).order_by('month')
+
+        # Fill missing months with 0
+        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        monthly_cases = [0] * 12
+        for item in monthly:
+            monthly_cases[item['month'] - 1] = item['cases'] or 0
+
+        # === Top 10 countries (for selected period) ===
+        top10 = base_qs.values('country').annotate(cases=Sum('cases')).order_by('-cases')[:10]
+        top10_labels = [x['country'] for x in top10]
+        top10_values = [x['cases'] or 0 for x in top10]
+
+        return JsonResponse({
+            "stats": {
+                "total_cases": stats_agg['total_cases'],
+                "total_deaths": stats_agg['total_deaths'],
+                "cfr_percent": cfr,
+                "avg_cases_per_country": avg_per_country,
+                "countries_affected": stats_agg['countries'],
+            },
+            "monthly_data": {
+                "labels": month_names,
+                "cases": monthly_cases
+            },
+            "top10": {
+                "labels": top10_labels,
+                "values": top10_values
+            }
+        })
         
 class GISDataView(View):
     def get(self, request):
@@ -121,8 +177,8 @@ def detect_csv_columns(request):
             else:
                 sample_data[col] = []
         
-        logger.info(f"📋 Detected {len(columns)} columns: {columns}")
-        logger.info(f"📊 Sample data: {sample_data}")
+        logger.info(f"Detected {len(columns)} columns: {columns}")
+        logger.info(f"Sample data: {sample_data}")
         
         return JsonResponse({
             'status': 'success',
@@ -138,7 +194,7 @@ def detect_csv_columns(request):
 
 def upload_csv(request):
     """
-    ⚡ ROBUST synchronous upload with crash-safe geometry fetching
+    ROBUST synchronous upload with crash-safe geometry fetching
     - Accepts manual column mapping from user
     - Fetches geometries ONE at a time (safest for server stability)
     - Small batch inserts (1000 records) for memory safety
@@ -162,12 +218,12 @@ def upload_csv(request):
     try:
         start_time = time.time()
         
-        # 1️⃣ READ CSV
+        # READ CSV
         df = pd.read_csv(file, encoding='utf-8', low_memory=False)
         total_rows = len(df)
-        logger.info(f"📥 Read {total_rows} rows from {file.name}")
+        logger.info(f"Read {total_rows} rows from {file.name}")
         
-        # 2️⃣ VALIDATE COLUMNS
+        # VALIDATE COLUMNS
         # If user provided manual mappings, use those. Otherwise auto-detect
         if not country_col:
             country_col = next((c for c in df.columns if 'country' in c.lower()), None)
@@ -184,18 +240,17 @@ def upload_csv(request):
             return JsonResponse({'error': 'CSV must contain country and cases/deaths columns'}, status=400)
 
         # DEBUG: Log detected/provided columns
-        logger.info(f"📋 Using columns: country='{country_col}', cases='{cases_col}', deaths='{deaths_col}', date='{date_col}'")
+        logger.info(f"Using columns: country='{country_col}', cases='{cases_col}', deaths='{deaths_col}', date='{date_col}'")
         if cases_col:
-            logger.info(f"📊 Sample values from {cases_col}: {df[cases_col].head(3).tolist()}")
+            logger.info(f"Sample values from {cases_col}: {df[cases_col].head(3).tolist()}")
         if deaths_col:
-            logger.info(f"📊 Sample values from {deaths_col}: {df[deaths_col].head(3).tolist()}")
-
-        # 3️⃣ PRE-FETCH GEOMETRIES - SIMPLIFIED & SAFE
+            logger.info(f"Sample values from {deaths_col}: {df[deaths_col].head(3).tolist()}")
+        # PRE-FETCH GEOMETRIES - SIMPLIFIED & SAFE
         unique_countries = df[country_col].dropna().unique()
         geometry_cache = {}
         empty_geom = GEOSGeometry('MULTIPOLYGON EMPTY', srid=4326)
         
-        logger.info(f"🌍 Fetching {len(unique_countries)} unique country geometries (simplified)...")
+        logger.info(f"Fetching {len(unique_countries)} unique country geometries (simplified)...")
         
         countries_to_fetch = list(set([str(c).strip().lower() for c in unique_countries]))
         
@@ -231,7 +286,7 @@ def upload_csv(request):
                                 geom = MultiPolygon(geom, srid=4326)
                             geometry_cache[country_key] = geom
                         except Exception as geom_err:
-                            logger.warning(f"⚠️ Skipping invalid geometry for {country_key}")
+                            logger.warning(f"Skipping invalid geometry for {country_key}")
                             geometry_cache[country_key] = empty_geom
                     else:
                         geometry_cache[country_key] = empty_geom
@@ -241,13 +296,13 @@ def upload_csv(request):
                     logger.info(f"   Progress: {idx + 1}/{len(countries_to_fetch)} countries...")
                     
             except Exception as fetch_err:
-                logger.error(f"⚠️ Fetch error for '{country_key}': {fetch_err}")
+                logger.error(f"Fetch error for '{country_key}': {fetch_err}")
                 geometry_cache[country_key] = empty_geom
                 continue
         
-        logger.info(f"✅ Cached {len(geometry_cache)} geometries (simplified to prevent crashes)")
+        logger.info(f"Cached {len(geometry_cache)} geometries (simplified to prevent crashes)")
 
-        # 4️⃣ PREPARE RECORDS
+        # PREPARE RECORDS
         records_to_create = []
         skipped = 0
         
@@ -316,9 +371,9 @@ def upload_csv(request):
                 )
             )
 
-        logger.info(f"📊 Prepared {len(records_to_create)} records ({skipped} skipped)")
+        logger.info(f"Prepared {len(records_to_create)} records ({skipped} skipped)")
 
-        # 5️⃣ BULK INSERT - VERY SMALL BATCHES FOR STABILITY
+        # BULK INSERT - VERY SMALL BATCHES FOR STABILITY
         if records_to_create:
             # Insert in small batches of 1000 to avoid overwhelming server
             for i in range(0, len(records_to_create), 1000):
@@ -327,12 +382,12 @@ def upload_csv(request):
                     DiseaseData.objects.bulk_create(batch, batch_size=1000)
                     logger.info(f"   Inserted {min(i+1000, len(records_to_create))}/{len(records_to_create)} records...")
                 except Exception as insert_err:
-                    logger.error(f"❌ Batch insert error at row {i}: {insert_err}")
+                    logger.error(f"Batch insert error at row {i}: {insert_err}")
                     raise
 
         elapsed = time.time() - start_time
         rows_per_sec = len(records_to_create) / elapsed if elapsed > 0 else 0
-        logger.info(f"✨ Upload complete! {len(records_to_create)} rows in {elapsed:.2f}s ({rows_per_sec:.0f} rows/sec)")
+        logger.info(f"Upload complete! {len(records_to_create)} rows in {elapsed:.2f}s ({rows_per_sec:.0f} rows/sec)")
 
         return JsonResponse({
             'status': 'success',
@@ -344,6 +399,6 @@ def upload_csv(request):
         })
 
     except Exception as e:
-        logger.error(f"❌ Upload failed: {e}", exc_info=True)
+        logger.error(f"Upload failed: {e}", exc_info=True)
         connection.close()
         return JsonResponse({'error': f'Upload failed: {str(e)}'}, status=500)

@@ -1,36 +1,72 @@
 {% extends "base.html" %}
 {% load static %}
-{% block title %}Interactive Map - DiseaseGIS{% endblock %}
+
+{% block title %}Interactive Map – NERGAL{% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <style>
-    #map { height: 700px; border-radius: 12px; box-shadow: 0 8px 25px rgba(0,0,0,0.15); }
-    .control-panel { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    #map { height: 700px; border-radius: 12px; box-shadow: 0 8px 25px rgba(0,0,0,.15); }
+    .sidebar { max-height: 90vh; overflow-y: auto; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid">
-    <h2 class="text-center my-4 text-primary">Global Disease Outbreak Interactive Map</h2>
-    
-    <div class="control-panel mb-3">
-        <div class="row g-3">
-            <div class="col-md-4">
-                <a href="/upload/" class="btn btn-success w-100">Upload New Dataset</a>
+<div class="container-fluid py-4">
+    <h2 class="text-center mb-4 text-primary">NERGAL – Global Disease Interactive Dashboard</h2>
+
+    <div class="row">
+        <!-- Map -->
+        <div class="col-lg-8">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="row align-items-center mb-3">
+                        <div class="col-md-4">
+                            <a href="/upload/" class="btn btn-success">Upload New Dataset</a>
+                        </div>
+                        <div class="col-md-4 text-center">
+                            <strong>Year:</strong>
+                            <input type="range" class="form-range" id="yearSlider" min="2010" max="2025" value="2020" step="1">
+                            <div id="yearDisplay" class="fw-bold mt-2">2020</div>
+                        </div>
+                        <div class="col-md-4 text-end">
+                            Dataset: <strong id="currentDataset">loading...</strong>
+                        </div>
+                    </div>
+                    <div id="map"></div>
+                </div>
             </div>
-            <div class="col-md-8">
-                <small class="text-muted">
-                    Current dataset: <strong id="currentDataset">All datasets</strong>
-                </small>
+        </div>
+
+        <!-- Sidebar Charts -->
+        <div class="col-lg-4 sidebar">
+            <div class="card mb-3">
+                <div class="card-header bg-primary text-white">Statistics</div>
+                <div class="card-body" id="statsPanel">
+                    <div class="spinner-border text-primary"></div> Loading statistics...
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">Cases Over Time</div>
+                <div class="card-body p-2">
+                    <canvas id="lineChart"></canvas>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">Top 10 Countries</div>
+                <div class="card-body p-2">
+                    <canvas id="barChart"></canvas>
+                </div>
             </div>
         </div>
     </div>
-
-    <div id="map"></div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="{% static 'js/map.js' %}"></script>
 {% endblock %}

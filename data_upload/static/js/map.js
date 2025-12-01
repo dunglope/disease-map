@@ -1,75 +1,141 @@
-var map = L.map('map').setView([10, 0], 3);  // View toàn cầu
+// map.js – Interactive Map + Charts + Time Filter for NERGAL
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors'
-}).addTo(map);
+let map, geojsonLayer;
+let lineChart, barChart;
 
-// === TỰ ĐỘNG LẤY DATASET MỚI NHẤT ===
-let currentDataset = 'ebola';  // fallback
+document.addEventListener('DOMContentLoaded', function () {
+    // Get current dataset from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const currentDataset = urlParams.get('dataset') || 'ebola';
+    document.getElementById('currentDataset').textContent = currentDataset;
 
-// Tìm dataset mới nhất từ URL (nếu có)
-// Ví dụ: /map/?dataset=covid19 → lấy "covid19"
-const urlParams = new URLSearchParams(window.location.search);
-if (urlParams.has('dataset')) {
-    currentDataset = urlParams.get('dataset');
-}
+    // Initialize Leaflet map
+    map = L.map('map').setView([20, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
 
-// === Tải dữ liệu từ API với dataset hiện tại ===
-function loadMapData() {
-    const url = `/api/gis-analysis/?dataset=${currentDataset}`;
-    
-    fetch(url)
-        .then(res => res.json())
-        .then(data => {
-            // Xóa layer cũ nếu có
-            map.eachLayer(layer => {
-                if (layer !== map._layers[Object.keys(map._layers)[0]]) {
-                    map.removeLayer(layer);
+    // Year slider control
+    const slider = document.getElementById('yearSlider');
+    const yearDisplay = document.getElementById('yearDisplay');
+
+    slider.addEventListener('input', function () {
+        const year = this.value;
+        yearDisplay.textContent = year;
+        loadEverything(year);
+    });
+
+    // Load map + stats + charts
+    function loadEverything(year = slider.value) {
+        const startDate = `${year}-01-01`;
+        const endDate = `${year}-12-31`;
+
+        // Load Map Data
+        fetch(`/api/gis-analysis/?dataset=${currentDataset}&start_date=${startDate}&end_date=${endDate}`)
+            .then(r => r.json())
+            .then(data => {
+                if (geojsonLayer) map.removeLayer(geojsonLayer);
+
+                geojsonLayer = L.geoJSON(data.features, {
+                    style: feature => {
+                        const cases = feature.properties.cases || 0;
+                        const color = cases > 5000 ? '#8B0000' :
+                                      cases > 1000 ? '#FF0000' :
+                                      cases > 500 ? '#FF6347' :
+                                      cases > 100 ? '#FFA500' :
+                                      cases > 10 ? '#FFD700' : '#FFFF99';
+                        return {
+                            fillColor: color,
+                            weight: 1.5,
+                            color: 'black',
+                            fillOpacity: 0.8
+                        };
+                    },
+                    onEachFeature: (feature, layer) => {
+                        const p = feature.properties;
+                        layer.bindPopup(`
+                            <strong>${p.country}</strong><br>
+                            Year: ${p.year}<br>
+                            Cases: <b>${(p.cases||0).toLocaleString()}</b><br>
+                            Density: ${(p.density||0).toFixed(4)} cases/deg²
+                        `);
+                    }
+                }).addTo(map);
+
+                if (data.features.length > 0) {
+                    map.fitBounds(geojsonLayer.getBounds().pad(0.2));
                 }
-            });
+            })
+            .catch(err => console.error('Map load error:', err));
 
-            L.geoJSON(data, {
-                style: function(feature) {
-                    const cases = feature.properties.cases || 0;
-                    const color = 
-                        cases > 5000 ? '#8B0000' :
-                        cases > 1000 ? '#FF0000' :
-                        cases > 500  ? '#FF6347' :
-                        cases > 100  ? '#FFA500' :
-                        cases > 10   ? '#FFD700' : '#FFFF00';
-                    return {
-                        fillColor: color,
-                        weight: 2,
-                        opacity: 1,
-                        color: 'black',
-                        fillOpacity: 0.7
-                    };
+        // Load Stats + Charts
+        fetch(`/api/gis-stats/?dataset=${currentDataset}&start_date=${startDate}&end_date=${endDate}`)
+            .then(r => r.json())
+            .then(d => {
+                // Update stats panel
+                document.getElementById('statsPanel').innerHTML = `
+                    <p><strong>Total Cases:</strong> ${d.stats.total_cases.toLocaleString()}</p>
+                    <p><strong>Total Deaths:</strong> ${d.stats.total_deaths.toLocaleString()}</p>
+                    <p><strong>CFR:</strong> ${d.stats.cfr_percent}%</p>
+                    <p><strong>Avg per Country:</strong> ${d.stats.avg_cases_per_country.toLocaleString()}</p>
+                    <p><strong>Countries Affected:</strong> ${d.stats.countries_affected}</p>
+                `;
+
+                // Line Chart: Cases over time (all years)
+                if (lineChart) lineChart.destroy();
+                lineChart = new Chart(document.getElementById('lineChart'), {
+                    type: 'line',
+                    data: {
+                        labels: d.monthly_data.labels,
+                        datasets: [{
+                            label: 'Monthly Cases',
+                            data: d.monthly_data.cases,
+                            borderColor: '#2563eb',
+                            backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                            tension: 0.4,
+                            fill: true,
+                            pointBackgroundColor: '#2563eb',
+                            pointRadius: 5
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+            title: {
+                display: true,
+                text: `Monthly Cases in ${document.getElementById('yearDisplay').textContent}`
                 },
-                onEachFeature: function(feature, layer) {
-                    const props = feature.properties;
-                    layer.bindPopup(`
-                        <strong>${props.country}</strong><br>
-                        Year: ${props.year}<br>
-                        Cases: <strong>${props.cases.toLocaleString()}</strong><br>
-                        Density: ${props.density?.toFixed(4) || 'N/A'}
-                    `);
-                }
-            }).addTo(map);
-
-            // Fit map to data
-            const bounds = L.geoJSON(data).getBounds();
-            if (bounds.isValid()) {
-                map.fitBounds(bounds.pad(0.1));
+                legend: { display: false }
+            },
+            scales: {
+                y: { beginAtZero: true },
+                x: { grid: { display: false } }
             }
-        })
-        .catch(err => {
-            console.error("Load map error:", err);
-            map.setView([10, 0], 3);
-        });
-}
+                    }
+                });
 
-// === Gọi lần đầu ===
-loadMapData();
+                // Bar Chart: Top 10 countries
+                if (barChart) barChart.destroy();
+                barChart = new Chart(document.getElementById('barChart'), {
+                    type: 'bar',
+                    data: {
+                        labels: d.top10.labels,
+                        datasets: [{
+                            label: 'Total Cases',
+                            data: d.top10.values,
+                            backgroundColor: '#2563eb'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { display: false } },
+                        scales: { y: { beginAtZero: true } }
+                    }
+                });
+            })
+            .catch(err => console.error('Stats load error:', err));
+    }
 
-// === Tự động reload khi có dataset mới (từ upload.js) ===
-window.loadMapData = loadMapData;  // Cho upload.js gọi lại
+    // Initial load
+    loadEverything();
+});

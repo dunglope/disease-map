@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import TemplateView
-from data_upload.views import GISDataView, GISAnalysisView, MapView, upload_csv, detect_csv_columns
+from data_upload.views import GISDataView, GISAnalysisView, MapView, upload_csv, detect_csv_columns, GISStatsView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -13,4 +13,5 @@ urlpatterns = [
     path('map/', MapView.as_view(), name='map'),
     path('api/upload/', csrf_exempt(upload_csv), name='api-upload'),
     path('api/detect-columns/', csrf_exempt(detect_csv_columns), name='detect-columns'),
+    path('api/gis-stats/', GISStatsView.as_view()),
 ]
