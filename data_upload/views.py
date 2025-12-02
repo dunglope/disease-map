@@ -16,134 +16,128 @@ logger = logging.getLogger(__name__)
 class GISStatsView(View):
     def get(self, request):
         dataset = request.GET.get('dataset', 'ebola')
-        start_date = request.GET.get('start_date')  # e.g., "2020-01-01"
-        end_date = request.GET.get('end_date')      # e.g., "2020-12-31"
+        start = request.GET.get('start_date')
+        end = request.GET.get('end_date')
 
-        base_qs = DiseaseData.objects.filter(dataset_type=dataset)
-        if start_date:
-            base_qs = base_qs.filter(date__gte=start_date)
-        if end_date:
-            base_qs = base_qs.filter(date__lte=end_date)
+        qs = DiseaseData.objects.filter(dataset_type=dataset)
+        # Fallback in case dataset has no rows, so UI can still render something
+        if not qs.exists():
+            logger.info(f"No rows for dataset='{dataset}', falling back to all data")
+            qs = DiseaseData.objects.all()
 
-        # === Global stats ===
-        stats_agg = base_qs.aggregate(
+        if start:
+            qs = qs.filter(date__gte=start)
+        if end:
+            qs = qs.filter(date__lte=end)
+
+        # Global stats
+        agg = qs.aggregate(
             total_cases=Coalesce(Sum('cases'), 0),
             total_deaths=Coalesce(Sum('deaths'), 0),
             countries=Count('country', distinct=True)
         )
-        cfr = round(stats_agg['total_deaths'] / stats_agg['total_cases'] * 100, 2) if stats_agg['total_cases'] else 0
-        avg_per_country = round(stats_agg['total_cases'] / stats_agg['countries'], 2) if stats_agg['countries'] else 0
+        cfr = round(agg['total_deaths'] / agg['total_cases'] * 100, 2) if agg['total_cases'] else 0
+        avg = round(agg['total_cases'] / agg['countries'], 2) if agg['countries'] else 0
 
-        # === Monthly cases for selected year (12 months) ===
-        monthly = base_qs.annotate(
-            month=ExtractMonth('date')
-        ).values('month').annotate(cases=Sum('cases')).order_by('month')
+        # Top 10 countries
+        top10 = qs.values('country').annotate(total=Sum('cases')).order_by('-total')[:10]
+        top10_countries = [item['country'] for item in top10]
 
-        # Fill missing months with 0
-        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-        monthly_cases = [0] * 12
-        for item in monthly:
-            monthly_cases[item['month'] - 1] = item['cases'] or 0
+        # Monthly data for EACH top 10 country
+        top10_monthly = {}
+        for country in top10_countries:
+            monthly = qs.filter(country=country).annotate(
+                month=ExtractMonth('date')
+            ).values('month').annotate(cases=Sum('cases')).order_by('month')
 
-        # === Top 10 countries (for selected period) ===
-        top10 = base_qs.values('country').annotate(cases=Sum('cases')).order_by('-cases')[:10]
-        top10_labels = [x['country'] for x in top10]
-        top10_values = [x['cases'] or 0 for x in top10]
+            cases_by_month = [0] * 12
+            for m in monthly:
+                if m['month']:
+                    cases_by_month[m['month'] - 1] = m['cases'] or 0
+            top10_monthly[country] = cases_by_month
+
+        # Build GeoJSON features for choropleth
+        features = []
+        try:
+            country_aggs = list(
+                qs.values('country')
+                  .annotate(total_cases=Coalesce(Sum('cases'), 0), total_deaths=Coalesce(Sum('deaths'), 0))
+                  .order_by('country')
+            )
+            for item in country_aggs:
+                country = item['country']
+                geom_json = None
+
+                # Prefer geometry stored in DiseaseData
+                row = qs.filter(country=country).exclude(geom__isnull=True).first()
+                if row and row.geom and not row.geom.empty:
+                    try:
+                        geom_json = json.loads(row.geom.geojson)
+                    except Exception as ge:
+                        logger.warning(f"Stored geom -> GeoJSON conversion failed for {country}: {ge}")
+                        geom_json = None
+
+                # Fallback: fetch from reference table world_countries if not present in DiseaseData
+                if not geom_json:
+                    key = (country or '').strip().lower()
+                    if key:
+                        try:
+                            with connection.cursor() as cur:
+                                cur.execute(
+                                    """
+                                    SELECT ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom, 0.02))
+                                    FROM world_countries
+                                    WHERE lower(name) = %s OR lower(name_en) = %s OR lower(adm0_a3) = %s
+                                    LIMIT 1
+                                    """,
+                                    [key, key, key]
+                                )
+                                rowg = cur.fetchone()
+                                if rowg and rowg[0]:
+                                    geom_json = json.loads(rowg[0])
+                        except Exception as fe:
+                            logger.debug(f"Fallback geometry fetch failed for '{country}': {fe}")
+
+                if not geom_json:
+                    # Skip countries we cannot map
+                    continue
+
+                # Optional: derive year label from start date
+                year_label = None
+                if start:
+                    try:
+                        year_label = str(pd.to_datetime(start).year)
+                    except Exception:
+                        year_label = None
+
+                features.append({
+                    "type": "Feature",
+                    "geometry": geom_json,
+                    "properties": {
+                        "country": country,
+                        "year": year_label,
+                        "cases": int(item['total_cases'] or 0),
+                        "deaths": int(item['total_deaths'] or 0)
+                    }
+                })
+        except Exception as e:
+            logger.error(f"Error building GeoJSON features: {e}")
 
         return JsonResponse({
             "stats": {
-                "total_cases": stats_agg['total_cases'],
-                "total_deaths": stats_agg['total_deaths'],
+                "total_cases": agg['total_cases'],
+                "total_deaths": agg['total_deaths'],
                 "cfr_percent": cfr,
-                "avg_cases_per_country": avg_per_country,
-                "countries_affected": stats_agg['countries'],
-            },
-            "monthly_data": {
-                "labels": month_names,
-                "cases": monthly_cases
+                "avg_cases_per_country": avg,
+                "countries_affected": agg['countries'],
             },
             "top10": {
-                "labels": top10_labels,
-                "values": top10_values
-            }
-        })
-        
-class GISDataView(View):
-    def get(self, request):
-        dataset = request.GET.get('dataset', 'ebola')
-        start = request.GET.get('start_date')
-        end = request.GET.get('end_date')
-        country = request.GET.get('country')
-
-        queryset = DiseaseData.objects.filter(dataset_type=dataset)
-        if start: queryset = queryset.filter(date__gte=start)
-        if end:   queryset = queryset.filter(date__lte=end)
-        if country: queryset = queryset.filter(country__iexact=country)
-
-        data = queryset.values('country').annotate(total_cases=Sum('cases'))
-        
-        features = []
-        for row in data:
-            geom = DiseaseData.objects.filter(country=row['country']).first().geom
-            if geom:
-                feature = {
-                    "type": "Feature",
-                    "geometry": json.loads(geom.geojson),
-                    "properties": {
-                        "country": row['country'],
-                        "cases": row['total_cases']
-                    }
-                }
-                features.append(feature)
-
-        geojson = {
-            "type": "FeatureCollection",
+                "countries": top10_countries,
+                "totals": [item['total'] or 0 for item in top10],
+                "monthly": top10_monthly
+            },
             "features": features
-        }
-        return JsonResponse(geojson)
-    
-class GISAnalysisView(View):
-    def get(self, request):
-        filters = Q()
-        if ds := request.GET.get('dataset'): 
-            filters &= Q(dataset_type__in=ds.split(','))
-        if start := request.GET.get('start_date'): 
-            filters &= Q(date__gte=start)
-        if end := request.GET.get('end_date'): 
-            filters &= Q(date__lte=end)
-        if country := request.GET.get('country'): 
-            filters &= Q(country__iexact=country)
-
-        agg = DiseaseData.objects.filter(filters) \
-            .values('country') \
-            .annotate(
-                year=ExtractYear('date'),
-                total_cases=Sum('cases')
-            )
-
-        features = []
-        for row in agg:
-            geom_obj = DiseaseData.objects.filter(country=row['country']).first()
-            if not geom_obj or not geom_obj.geom:
-                continue
-
-            area_sq_deg = geom_obj.geom.area  # PostGIS area in SRID units (4326 → degrees)
-
-            density = row['total_cases'] / area_sq_deg if area_sq_deg > 0 else 0
-
-            features.append({
-                "type": "Feature",
-                "geometry": json.loads(geom_obj.geom.geojson),
-                "properties": {
-                    "country": row['country'],
-                    "year": row['year'],
-                    "cases": row['total_cases'],
-                    "density": round(density, 8)
-                }
-            })
-
-        return JsonResponse({"type": "FeatureCollection", "features": features})
+        })
     
 class MapView(View):
     def get(self, request):
@@ -197,7 +191,7 @@ def upload_csv(request):
     ROBUST synchronous upload with crash-safe geometry fetching
     - Accepts manual column mapping from user
     - Fetches geometries ONE at a time (safest for server stability)
-    - Small batch inserts (1000 records) for memory safety
+    - Small batch inserts (1000 records) for memory safety)
     - Safe for files with 100k+ rows
     """
     if request.method != 'POST':
@@ -261,21 +255,27 @@ def upload_csv(request):
                 with connection.cursor() as cur:
                     # Use simplified geometry to prevent memory crashes
                     # Tolerance 0.01 degrees = ~1km, good enough for visualization
-                    cur.execute("""
+                    cur.execute(
+                        """
                         SELECT ST_AsText(ST_SimplifyPreserveTopology(geom, 0.01))
                         FROM world_countries 
                         WHERE lower(name) = %s LIMIT 1
-                    """, [country_key])
+                        """,
+                        [country_key]
+                    )
                     
                     row = cur.fetchone()
                     
                     # Fallback to name_en or adm0_a3
                     if not row:
-                        cur.execute("""
+                        cur.execute(
+                            """
                             SELECT ST_AsText(ST_SimplifyPreserveTopology(geom, 0.01))
                             FROM world_countries 
                             WHERE lower(name_en) = %s OR lower(adm0_a3) = %s LIMIT 1
-                        """, [country_key, country_key])
+                            """,
+                            [country_key, country_key]
+                        )
                         row = cur.fetchone()
                     
                     if row and row[0]:
@@ -285,7 +285,7 @@ def upload_csv(request):
                             if geom.geom_type == 'Polygon':
                                 geom = MultiPolygon(geom, srid=4326)
                             geometry_cache[country_key] = geom
-                        except Exception as geom_err:
+                        except Exception:
                             logger.warning(f"Skipping invalid geometry for {country_key}")
                             geometry_cache[country_key] = empty_geom
                     else:
@@ -331,8 +331,7 @@ def upload_csv(request):
                         raw_cases = raw_cases.replace(',', '')
                     if pd.notna(raw_cases) and raw_cases != '':
                         cases = int(float(raw_cases))
-                except (ValueError, TypeError) as parse_err:
-                    logger.debug(f"Could not parse cases '{raw_cases}' for {country_clean}: {parse_err}")
+                except (ValueError, TypeError):
                     cases = None
 
             # Parse deaths value
@@ -344,8 +343,7 @@ def upload_csv(request):
                         raw_deaths = raw_deaths.replace(',', '')
                     if pd.notna(raw_deaths) and raw_deaths != '':
                         deaths = int(float(raw_deaths))
-                except (ValueError, TypeError) as parse_err:
-                    logger.debug(f"Could not parse deaths '{raw_deaths}' for {country_clean}: {parse_err}")
+                except (ValueError, TypeError):
                     deaths = None
 
             if date_idx and date_idx < len(row):
@@ -353,7 +351,7 @@ def upload_csv(request):
                 try:
                     dt = pd.to_datetime(raw_date, errors='coerce')
                     date_val = dt.date() if pd.notna(dt) else default_date
-                except:
+                except Exception:
                     date_val = default_date
             else:
                 date_val = default_date
@@ -375,7 +373,6 @@ def upload_csv(request):
 
         # BULK INSERT - VERY SMALL BATCHES FOR STABILITY
         if records_to_create:
-            # Insert in small batches of 1000 to avoid overwhelming server
             for i in range(0, len(records_to_create), 1000):
                 batch = records_to_create[i:i+1000]
                 try:
