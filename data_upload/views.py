@@ -39,22 +39,33 @@ class GISStatsView(View):
         cfr = round(agg['total_deaths'] / agg['total_cases'] * 100, 2) if agg['total_cases'] else 0
         avg = round(agg['total_cases'] / agg['countries'], 2) if agg['countries'] else 0
 
-        # Top 10 countries
-        top10 = qs.values('country').annotate(total=Sum('cases')).order_by('-total')[:10]
+        # Top 10 countries (default by cases). Support optional sort query param
+        sort_by = (request.GET.get('sort') or 'cases').lower()
+        if sort_by not in ['cases', 'deaths']:
+            sort_by = 'cases'
+        if sort_by == 'deaths':
+            top10 = qs.values('country').annotate(total=Coalesce(Sum('deaths'), 0)).order_by('-total')[:10]
+        else:
+            top10 = qs.values('country').annotate(total=Coalesce(Sum('cases'), 0)).order_by('-total')[:10]
         top10_countries = [item['country'] for item in top10]
 
-        # Monthly data for EACH top 10 country
-        top10_monthly = {}
+        # Monthly data for EACH top 10 country (cases and deaths)
+        top10_monthly_cases = {}
+        top10_monthly_deaths = {}
         for country in top10_countries:
             monthly = qs.filter(country=country).annotate(
                 month=ExtractMonth('date')
-            ).values('month').annotate(cases=Sum('cases')).order_by('month')
+            ).values('month').annotate(cases=Coalesce(Sum('cases'), 0), deaths=Coalesce(Sum('deaths'), 0)).order_by('month')
 
             cases_by_month = [0] * 12
+            deaths_by_month = [0] * 12
             for m in monthly:
                 if m['month']:
-                    cases_by_month[m['month'] - 1] = m['cases'] or 0
-            top10_monthly[country] = cases_by_month
+                    idx = m['month'] - 1
+                    cases_by_month[idx] = m['cases'] or 0
+                    deaths_by_month[idx] = m['deaths'] or 0
+            top10_monthly_cases[country] = cases_by_month
+            top10_monthly_deaths[country] = deaths_by_month
 
         # Build GeoJSON features for choropleth
         features = []
@@ -134,7 +145,9 @@ class GISStatsView(View):
             "top10": {
                 "countries": top10_countries,
                 "totals": [item['total'] or 0 for item in top10],
-                "monthly": top10_monthly
+                "monthly_cases": top10_monthly_cases,
+                "monthly_deaths": top10_monthly_deaths,
+                "sort_by": sort_by
             },
             "features": features
         })

@@ -1,9 +1,11 @@
 // map.js – Interactive Map + Charts + Time Filter for NERGAL
 
 let map, geojsonLayer;
-let lineChart, barChart;
+let lineChart, deathsChart, barChart;
+let currentSort = 'cases'; // 'cases' or 'deaths'
 
 document.addEventListener('DOMContentLoaded', function () {
+    console.log('map.js DOMContentLoaded fired');
     // Get current dataset from URL
     const urlParams = new URLSearchParams(window.location.search);
     const currentDataset = urlParams.get('dataset') || 'ebola';
@@ -19,19 +21,44 @@ document.addEventListener('DOMContentLoaded', function () {
     const slider = document.getElementById('yearSlider');
     const yearDisplay = document.getElementById('yearDisplay');
 
+    // Top 10 sort buttons
+    const sortCasesBtn = document.getElementById('sortCasesBtn');
+    const sortDeathsBtn = document.getElementById('sortDeathsBtn');
+
     slider.addEventListener('input', function () {
         const year = this.value;
         yearDisplay.textContent = year;
         loadEverything(year);
     });
 
+    if (sortCasesBtn && sortDeathsBtn) {
+        sortCasesBtn.addEventListener('click', function () {
+            currentSort = 'cases';
+            sortCasesBtn.classList.add('btn-primary');
+            sortCasesBtn.classList.remove('btn-outline-light');
+            sortDeathsBtn.classList.add('btn-outline-light');
+            sortDeathsBtn.classList.remove('btn-primary');
+            loadEverything();
+        });
+
+        sortDeathsBtn.addEventListener('click', function () {
+            currentSort = 'deaths';
+            sortDeathsBtn.classList.add('btn-primary');
+            sortDeathsBtn.classList.remove('btn-outline-light');
+            sortCasesBtn.classList.add('btn-outline-light');
+            sortCasesBtn.classList.remove('btn-primary');
+            loadEverything();
+        });
+    }
+
     // Load map + stats + charts
     function loadEverything(year = slider.value) {
+        console.log('loadEverything called with year =', year);
         const startDate = `${year}-01-01`;
         const endDate = `${year}-12-31`;
 
-        // Load Map Data (guarded; backend currently returns stats, not GeoJSON)
-        fetch(`/api/gis-stats/?dataset=${currentDataset}&start_date=${startDate}&end_date=${endDate}`)
+        // Load Map Data
+        fetch(`/api/gis-stats/?dataset=${currentDataset}&start_date=${startDate}&end_date=${endDate}&sort=${currentSort}`)
             .then(r => r.json())
             .then(d => {
                 if (d && d.features && Array.isArray(d.features)) {
@@ -73,9 +100,13 @@ document.addEventListener('DOMContentLoaded', function () {
             .catch(err => console.error('Map load error:', err));
 
         // Load Stats + Charts
-        fetch(`/api/gis-stats/?dataset=${currentDataset}&start_date=${startDate}&end_date=${endDate}`)
-            .then(r => r.json())
+        fetch(`/api/gis-stats/?dataset=${currentDataset}&start_date=${startDate}&end_date=${endDate}&sort=${currentSort}`)
+            .then(r => {
+                console.log('Stats fetch status:', r.status);
+                return r.json();
+            })
             .then(d => {
+                console.log('GIS stats response:', d);
                 // Update stats panel
                 document.getElementById('statsPanel').innerHTML = `
                     <p><strong>Total Cases:</strong> ${d.stats.total_cases.toLocaleString()}</p>
@@ -88,11 +119,17 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Prepare month labels and aggregate monthly totals from top10 monthly data
                 const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
                 const monthlyTotals = Array(12).fill(0);
-                if (d.top10 && d.top10.monthly) {
-                    Object.values(d.top10.monthly).forEach(arr => {
-                        (arr || []).forEach((v, i) => { monthlyTotals[i] += (v || 0); });
-                    });
-                }
+                const monthlyDeathsTotals = Array(12).fill(0);
+                const monthlyCases = (d.top10 && d.top10.monthly_cases) || {};
+                const monthlyDeaths = (d.top10 && d.top10.monthly_deaths) || {};
+
+                Object.values(monthlyCases).forEach(arr => {
+                    (arr || []).forEach((v, i) => { monthlyTotals[i] += (v || 0); });
+                });
+
+                Object.values(monthlyDeaths).forEach(arr => {
+                    (arr || []).forEach((v, i) => { monthlyDeathsTotals[i] += (v || 0); });
+                });
 
                 // Line Chart: Cases over time (computed)
                 if (lineChart) lineChart.destroy();
@@ -127,13 +164,47 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                 });
 
+                // Line Chart: Deaths over time (computed)
+                if (deathsChart) deathsChart.destroy();
+                deathsChart = new Chart(document.getElementById('deathsChart'), {
+                    type: 'line',
+                    data: {
+                        labels: monthLabels,
+                        datasets: [{
+                            label: 'Monthly Deaths',
+                            data: monthlyDeathsTotals,
+                            borderColor: '#dc2626',
+                            backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                            tension: 0.4,
+                            fill: true,
+                            pointBackgroundColor: '#dc2626',
+                            pointRadius: 5
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: `Monthly Deaths in ${document.getElementById('yearDisplay').textContent}`
+                            },
+                            legend: { display: false }
+                        },
+                        scales: {
+                            y: { beginAtZero: true },
+                            x: { grid: { display: false } }
+                        }
+                    }
+                });
+
                 // Bar/mini-line Charts for Top 10 countries
                 const container = document.getElementById('top10Container');
                 container.innerHTML = '';
 
-                const countries = d.top10.countries || [];
-                const totals = d.top10.totals || [];
-                const monthlyData = d.top10.monthly || {};
+                const top10 = d.top10 || {};
+                const countries = top10.countries || [];
+                const totals = top10.totals || [];
+                const monthlyData = top10.monthly_cases || {};
 
                 countries.forEach((country, idx) => {
                     const div = document.createElement('div');
@@ -152,6 +223,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         data: {
                             labels: monthLabels,
                             datasets: [{
+                                label: 'Cases',
                                 data: monthlyData[country] || Array(12).fill(0),
                                 borderColor: '#2563eb',
                                 backgroundColor: 'rgba(37, 99, 235, 0.1)',
@@ -162,16 +234,48 @@ document.addEventListener('DOMContentLoaded', function () {
                         },
                         options: {
                             responsive: true,
-                            plugins: { legend: { display: false }, tooltip: { enabled: true } },
+                            plugins: {
+                                legend: {
+                                    display: true,
+                                    labels: {
+                                        boxWidth: 12,
+                                        boxHeight: 12,
+                                        usePointStyle: true
+                                    }
+                                },
+                                tooltip: { enabled: true }
+                            },
                             scales: {
-                                x: { display: false },
-                                y: { display: false, beginAtZero: true }
+                                x: {
+                                    display: true,
+                                    grid: { display: false },
+                                    ticks: { display: false },
+                                    title: {
+                                        display: true,
+                                        text: 'Months (Jan–Dec)',
+                                        font: { size: 10 }
+                                    }
+                                },
+                                y: {
+                                    display: true,
+                                    beginAtZero: true,
+                                    grid: { display: false },
+                                    ticks: { display: false },
+                                    title: {
+                                        display: true,
+                                        text: 'Cases',
+                                        font: { size: 10 }
+                                    }
+                                }
                             }
                         }
                     });
 
                     container.appendChild(div);
                 });
+            })
+            .catch(err => {
+                console.error('Stats load error:', err);
             });
     }
 
