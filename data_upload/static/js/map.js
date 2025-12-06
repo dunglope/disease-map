@@ -1,15 +1,13 @@
-// map.js – Interactive Map + Charts + Time Filter for NERGAL
-
 let map, geojsonLayer;
 let lineChart, deathsChart, barChart;
-let currentSort = 'cases'; // 'cases' or 'deaths'
+let currentSort = 'cases';
+let currentDataset = 'ebola';
 
 document.addEventListener('DOMContentLoaded', function () {
     console.log('map.js DOMContentLoaded fired');
     // Get current dataset from URL
     const urlParams = new URLSearchParams(window.location.search);
-    const currentDataset = urlParams.get('dataset') || 'ebola';
-    document.getElementById('currentDataset').textContent = currentDataset;
+    currentDataset = urlParams.get('dataset') || 'ebola';
 
     // Initialize Leaflet map
     map = L.map('map').setView([20, 0], 2);
@@ -279,6 +277,39 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     }
 
+    function loadDatasetList() {
+    fetch('/api/datasets/')
+        .then(r => r.json())
+        .then(data => {
+            const select = document.getElementById('datasetSelector');
+            select.innerHTML = '';
+            data.datasets.forEach(ds => {
+                const opt = document.createElement('option');
+                opt.value = ds;
+                opt.textContent = ds;
+                if (ds === currentDataset) opt.selected = true;
+                select.appendChild(opt);
+            });
+
+            // Cập nhật URL + reload data khi đổi dataset
+            select.addEventListener('change', function() {
+                currentDataset = this.value;
+                const newUrl = new URL(window.location);
+                newUrl.searchParams.set('dataset', currentDataset);
+                window.history.replaceState({}, '', newUrl);
+                document.getElementById('currentDataset').textContent = currentDataset;
+                loadEverything();
+            });
+
+            // Bật nút Discuss
+            document.getElementById('discussBtn').disabled = false;
+            document.getElementById('discussBtn').onclick = () => {
+                window.open(`/discussion/?dataset=${encodeURIComponent(currentDataset)}`, '_blank');
+            };
+        });
+}
+
     // Initial load
     loadEverything();
+    loadDatasetList();
 });

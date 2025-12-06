@@ -1,15 +1,19 @@
 import time
 import json
 import logging
+from django.urls import reverse
 import pandas as pd
 from django.views import View
 from django.http import JsonResponse
 from django.db import connection
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.contrib.gis.geos import GEOSGeometry, MultiPolygon
 from django.db.models import Q, Sum, Count, FloatField
 from django.db.models.functions import ExtractYear, Coalesce, ExtractMonth
-from .models import DiseaseData
+from django.views.decorators.csrf import csrf_exempt
+from .models import DiseaseData, DiscussionMessage
+from django.utils.crypto import get_random_string
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -412,3 +416,63 @@ def upload_csv(request):
         logger.error(f"Upload failed: {e}", exc_info=True)
         connection.close()
         return JsonResponse({'error': f'Upload failed: {str(e)}'}, status=500)
+    
+def discussion(request):
+    display_name = request.session.get('display_name')
+
+    current_dataset = request.GET.get('dataset', 'general')
+
+    if request.method == "POST" and not display_name:
+        name = request.POST.get("display_name", "").strip()
+        if not name:
+            return render(request, 'discussion_name.html', {
+                'error': 'Please enter a display name',
+                'current_dataset': current_dataset 
+            })
+
+        base_name = name
+        counter = 1
+        while DiscussionMessage.objects.filter(display_name__iexact=name).exists():
+            name = f"{base_name}#{get_random_string(4, allowed_chars='0123456789')}"
+            counter += 1
+            if counter > 100:
+                break
+
+        request.session['display_name'] = name
+        return redirect(f"{reverse('discussion')}?dataset={current_dataset}")
+
+    if not display_name:
+        return render(request, 'discussion_name.html', {
+            'current_dataset': current_dataset
+        })
+
+    messages = DiscussionMessage.objects.all()[:200]
+
+    return render(request, 'discussion.html', {
+        'display_name': display_name,
+        'current_dataset': current_dataset,
+        'messages': messages,
+    })
+@csrf_exempt
+def post_message(request):
+    if request.method != "POST":
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    display_name = request.session.get('display_name')
+    if not display_name:
+        return JsonResponse({'error': 'Please enter your name'}, status=403)
+
+    message = request.POST.get('message', '').strip()
+    if not message or len(message) > 1000:
+        return JsonResponse({'error': 'Unappropriate message'}, status=400)
+
+    DiscussionMessage.objects.create(
+        display_name=display_name,
+        message=message
+    )
+    return JsonResponse({'status': 'ok'})
+
+def get_datasets(request):
+    datasets = DiseaseData.objects.values('dataset_type').distinct().order_by('dataset_type')
+    dataset_list = [item['dataset_type'] for item in datasets if item['dataset_type']]
+    return JsonResponse({'datasets': dataset_list})

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Discussion – NERGAL{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <h2 class="mb-4">
+        Community Discussion
+        <span class="text-primary">
+        {{ current_dataset|default:"General" }}
+        </span>
+    </h2>
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <strong>Hello <span class="text-primary">{{ display_name }}</span></strong>
+            <a href="{% url 'discussion' %}?logout=1" class="btn btn-sm btn-outline-danger">Change name</a>
+        </div>
+        <div class="card-body" id="chatArea" style="height: 60vh; overflow-y: auto; background:#f8f9fa;">
+            {% for msg in messages %}
+                <div class="d-flex flex-column mb-3">
+                    <small class="text-muted">{{ msg.created_at|date:"d/m/Y H:i" }}</small>
+                    <strong>{{ msg.display_name }}</strong>: {{ msg.message|linebreaksbr }}
+                </div>
+            {% endfor %}
+        </div>
+        <div class="card-footer">
+            <form id="msgForm">
+                {% csrf_token %}
+                <div class="input-group">
+                    <input type="text" id="messageInput" class="form-control" placeholder="Enter your message..." maxlength="1000">
+                    <button type="submit" class="btn btn-primary">Send</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+const displayName = "{{ display_name|escapejs }}";
+
+document.getElementById('msgForm').onsubmit = async e => {
+    e.preventDefault();
+    const input = document.getElementById('messageInput');
+    const msg = input.value.trim();
+    if (!msg) return;
+    await fetch('/api/post-message/', {
+        method: 'POST',
+        body: new URLSearchParams({message: msg}),
+        headers: {'X-CSRFToken': '{{ csrf_token }}'}
+    });
+    input.value = '';
+    loadMessages();
+};
+
+function loadMessages() {
+    fetch('{% url "discussion" %}')
+        .then(r => r.text())
+        .then(html => {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            document.getElementById('chatArea').innerHTML = 
+                doc.getElementById('chatArea').innerHTML;
+            document.getElementById('chatArea').scrollTop = document.getElementById('chatArea').scrollHeight;
+        });
+}
+setInterval(loadMessages, 4000); // tự động refresh mỗi 4 giây
+loadMessages();
+</script>
+{% endblock %}

@@ -42,7 +42,15 @@
                             <div id="yearDisplay" class="fw-bold mt-2">2020</div>
                         </div>
                         <div class="col-md-4 text-md-end">
-                            Dataset: <strong id="currentDataset">loading...</strong>
+                            <div class="col-md-4 text-center">
+                                <label class="form-label fw-bold mb-1">Dataset</label>
+                                <select id="datasetSelector" class="form-select"></select>
+                            </div>
+                            <div class="col-md-4 text-end d-flex align-items-end justify-content-end gap-2">
+                                <button id="discussBtn" class="btn btn-outline-primary" disabled>
+                                    Discuss this Dataset
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div id="map"></div>
