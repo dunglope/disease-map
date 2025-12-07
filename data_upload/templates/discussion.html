@@ -16,15 +16,42 @@
         </div>
         <div class="card-body" id="chatArea" style="height: 60vh; overflow-y: auto; background:#f8f9fa;">
             {% for msg in messages %}
-                <div class="d-flex flex-column mb-3">
-                    <small class="text-muted">{{ msg.created_at|date:"d/m/Y H:i" }}</small>
-                    <strong>{{ msg.display_name }}</strong>: {{ msg.message|linebreaksbr }}
-                </div>
+                {% if not msg.reply_to %}
+                    <div class="d-flex flex-column mb-3 p-2 border-start border-primary" style="background:#fff; border-radius:4px;">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <small class="text-muted">{{ msg.created_at|date:"d/m/Y H:i" }}</small>
+                                <strong>{{ msg.display_name }}</strong>: {{ msg.message|linebreaksbr }}
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary reply-btn" data-msg-id="{{ msg.id }}" data-msg-name="{{ msg.display_name }}" title="Reply">↩️</button>
+                        </div>
+                        
+                        {% if msg.replies.all %}
+                            <div class="ms-3 mt-2 ps-2 border-start border-secondary">
+                                {% for reply in msg.replies.all %}
+                                    <div class="d-flex justify-content-between align-items-start mb-2" style="background:#f0f0f0; padding:8px; border-radius:3px;">
+                                        <div>
+                                            <small class="text-muted">{{ reply.created_at|date:"d/m/Y H:i" }}</small>
+                                            <strong>{{ reply.display_name }}</strong>: {{ reply.message|linebreaksbr }}
+                                        </div>
+                                        <button class="btn btn-sm btn-outline-secondary reply-btn" data-msg-id="{{ reply.id }}" data-msg-name="{{ reply.display_name }}" title="Reply">↩️</button>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endif %}
             {% endfor %}
         </div>
         <div class="card-footer">
+            <div id="replyIndicator" class="alert alert-info mb-2" style="display:none;">
+                Replying to <strong id="replyName"></strong>
+                <button type="button" class="btn-close" id="cancelReplyBtn"></button>
+            </div>
             <form id="msgForm">
                 {% csrf_token %}
+                <input type="hidden" name="dataset" value="{{ current_dataset }}">
+                <input type="hidden" id="replyToInput" name="reply_to" value="">
                 <div class="input-group">
                     <input type="text" id="messageInput" class="form-control" placeholder="Enter your message..." maxlength="1000">
                     <button type="submit" class="btn btn-primary">Send</button>
@@ -42,27 +69,56 @@ document.getElementById('msgForm').onsubmit = async e => {
     const input = document.getElementById('messageInput');
     const msg = input.value.trim();
     if (!msg) return;
+    const dataset = document.querySelector('input[name="dataset"]').value;
+    const replyToId = document.getElementById('replyToInput').value;
     await fetch('/api/post-message/', {
         method: 'POST',
-        body: new URLSearchParams({message: msg}),
+        body: new URLSearchParams({
+            message: msg, 
+            dataset: dataset,
+            reply_to: replyToId
+        }),
         headers: {'X-CSRFToken': '{{ csrf_token }}'}
     });
     input.value = '';
+    document.getElementById('replyToInput').value = '';
+    document.getElementById('replyIndicator').style.display = 'none';
     loadMessages();
 };
 
+document.getElementById('cancelReplyBtn').onclick = () => {
+    document.getElementById('replyToInput').value = '';
+    document.getElementById('replyIndicator').style.display = 'none';
+};
+
+function attachReplyListeners() {
+    document.querySelectorAll('.reply-btn').forEach(btn => {
+        btn.onclick = e => {
+            e.preventDefault();
+            const msgId = btn.dataset.msgId;
+            const msgName = btn.dataset.msgName;
+            document.getElementById('replyToInput').value = msgId;
+            document.getElementById('replyName').textContent = msgName;
+            document.getElementById('replyIndicator').style.display = 'block';
+            document.getElementById('messageInput').focus();
+        };
+    });
+}
+
 function loadMessages() {
-    fetch('{% url "discussion" %}')
+    const dataset = new URLSearchParams(window.location.search).get('dataset') || 'general';
+    fetch(`{% url "discussion" %}?dataset=${dataset}`)
         .then(r => r.text())
         .then(html => {
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
             document.getElementById('chatArea').innerHTML = 
                 doc.getElementById('chatArea').innerHTML;
+            attachReplyListeners();
             document.getElementById('chatArea').scrollTop = document.getElementById('chatArea').scrollHeight;
         });
 }
-setInterval(loadMessages, 4000); // tự động refresh mỗi 4 giây
+setInterval(loadMessages, 4000);
 loadMessages();
 </script>
 {% endblock %}

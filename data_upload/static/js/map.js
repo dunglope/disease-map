@@ -2,9 +2,44 @@ let map, geojsonLayer;
 let lineChart, deathsChart, barChart;
 let currentSort = 'cases';
 let currentDataset = 'ebola';
+let rawMonthlyData = { cases: {}, deaths: {} };
+let debugMessages = [];
+
+// Debug console helper
+function debugLog(msg) {
+    const timestamp = new Date().toLocaleTimeString();
+    const fullMsg = `[${timestamp}] ${msg}`;
+    debugMessages.push(fullMsg);
+    
+    // Log to browser console always
+    console.log(fullMsg);
+    
+    // Try to log to debug div if it exists
+    try {
+        const debugDiv = document.getElementById('debugConsole');
+        if (debugDiv) {
+            debugDiv.textContent += fullMsg + '\n';
+            debugDiv.scrollTop = debugDiv.scrollHeight;
+        }
+    } catch (e) {
+        // Silently fail if div doesn't exist yet
+    }
+}
+
+// Flush buffered debug messages to the console panel
+function flushDebugMessages() {
+    const debugDiv = document.getElementById('debugConsole');
+    if (debugDiv && debugMessages.length > 0) {
+        debugDiv.textContent = debugMessages.join('\n') + '\n' + debugDiv.textContent;
+        debugDiv.scrollTop = debugDiv.scrollHeight;
+    }
+}
 
 document.addEventListener('DOMContentLoaded', function () {
-    console.log('map.js DOMContentLoaded fired');
+    // Flush any buffered debug messages
+    flushDebugMessages();
+    debugLog('DOMContentLoaded fired - page is ready');
+    
     // Get current dataset from URL
     const urlParams = new URLSearchParams(window.location.search);
     currentDataset = urlParams.get('dataset') || 'ebola';
@@ -129,7 +164,12 @@ document.addEventListener('DOMContentLoaded', function () {
                     (arr || []).forEach((v, i) => { monthlyDeathsTotals[i] += (v || 0); });
                 });
 
-                // Line Chart: Cases over time (computed)
+                // Store raw monthly data for resolution switching
+                rawMonthlyData.cases = monthlyTotals;
+                rawMonthlyData.deaths = monthlyDeathsTotals;
+
+                // Render monthly charts
+                // Cases chart
                 if (lineChart) lineChart.destroy();
                 lineChart = new Chart(document.getElementById('lineChart'), {
                     type: 'line',
@@ -162,7 +202,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                 });
 
-                // Line Chart: Deaths over time (computed)
+                // Deaths chart
                 if (deathsChart) deathsChart.destroy();
                 deathsChart = new Chart(document.getElementById('deathsChart'), {
                     type: 'line',
@@ -278,38 +318,48 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function loadDatasetList() {
-    fetch('/api/datasets/')
-        .then(r => r.json())
-        .then(data => {
-            const select = document.getElementById('datasetSelector');
-            select.innerHTML = '';
-            data.datasets.forEach(ds => {
-                const opt = document.createElement('option');
-                opt.value = ds;
-                opt.textContent = ds;
-                if (ds === currentDataset) opt.selected = true;
-                select.appendChild(opt);
-            });
+        fetch('/api/datasets/')
+            .then(r => r.json())
+            .then(data => {
+                const select = document.getElementById('datasetSelector');
+                if (!select) {
+                    console.warn('datasetSelector element not found');
+                    return;
+                }
+                
+                select.innerHTML = '';
+                data.datasets.forEach(ds => {
+                    const opt = document.createElement('option');
+                    opt.value = ds;
+                    opt.textContent = ds;
+                    if (ds === currentDataset) opt.selected = true;
+                    select.appendChild(opt);
+                });
 
-            // Cập nhật URL + reload data khi đổi dataset
-            select.addEventListener('change', function() {
-                currentDataset = this.value;
-                const newUrl = new URL(window.location);
-                newUrl.searchParams.set('dataset', currentDataset);
-                window.history.replaceState({}, '', newUrl);
-                document.getElementById('currentDataset').textContent = currentDataset;
-                loadEverything();
-            });
+                // Update URL + reload data when dataset changes
+                select.addEventListener('change', function() {
+                    currentDataset = this.value;
+                    const newUrl = new URL(window.location);
+                    newUrl.searchParams.set('dataset', currentDataset);
+                    window.history.replaceState({}, '', newUrl);
+                    loadEverything();
+                });
 
-            // Bật nút Discuss
-            document.getElementById('discussBtn').disabled = false;
-            document.getElementById('discussBtn').onclick = () => {
-                window.open(`/discussion/?dataset=${encodeURIComponent(currentDataset)}`, '_blank');
-            };
-        });
-}
+                // Discuss
+                const discussBtn = document.getElementById('discussBtn');
+                if (discussBtn) {
+                    discussBtn.disabled = false;
+                    discussBtn.onclick = () => {
+                        window.open(`/discussion/?dataset=${encodeURIComponent(currentDataset)}`, '_blank');
+                    };
+                }
+            })
+            .catch(err => console.error('Error loading datasets:', err));
+    }
 
     // Initial load
     loadEverything();
     loadDatasetList();
+
+    debugLog('✓ Page initialization complete');
 });

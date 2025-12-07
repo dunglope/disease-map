@@ -10,13 +10,16 @@ class DiseaseData(models.Model):
     
 class DiscussionMessage(models.Model):
     display_name = models.CharField(max_length=50, db_index=True)
-    message      = models.TextField()
-    created_at   = models.DateTimeField(auto_now_add=True)
+    dataset_type = models.CharField(max_length=50, default='general', db_index=True)
+    message = models.TextField()
+    reply_to = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='replies')
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['display_name']),
+            models.Index(fields=['dataset_type']),
         ]
 
     def __str__(self):

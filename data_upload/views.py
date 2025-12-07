@@ -58,8 +58,12 @@ class GISStatsView(View):
         top10_monthly_deaths = {}
         for country in top10_countries:
             monthly = qs.filter(country=country).annotate(
-                month=ExtractMonth('date')
-            ).values('month').annotate(cases=Coalesce(Sum('cases'), 0), deaths=Coalesce(Sum('deaths'), 0)).order_by('month')
+                month=ExtractMonth('date'),
+                year=ExtractYear('date')
+            ).values('month', 'year').annotate(
+                cases=Coalesce(Sum('cases'), 0), 
+                deaths=Coalesce(Sum('deaths'), 0)
+            ).order_by('year', 'month')
 
             cases_by_month = [0] * 12
             deaths_by_month = [0] * 12
@@ -446,7 +450,7 @@ def discussion(request):
             'current_dataset': current_dataset
         })
 
-    messages = DiscussionMessage.objects.all()[:200]
+    messages = DiscussionMessage.objects.filter(dataset_type=current_dataset).order_by('-created_at')[:200]
 
     return render(request, 'discussion.html', {
         'display_name': display_name,
@@ -466,9 +470,21 @@ def post_message(request):
     if not message or len(message) > 1000:
         return JsonResponse({'error': 'Unappropriate message'}, status=400)
 
+    dataset_type = request.POST.get('dataset', 'general')
+    reply_to_id = request.POST.get('reply_to', None)
+    
+    reply_to = None
+    if reply_to_id:
+        try:
+            reply_to = DiscussionMessage.objects.get(id=reply_to_id)
+        except DiscussionMessage.DoesNotExist:
+            return JsonResponse({'error': 'Reply target not found'}, status=404)
+
     DiscussionMessage.objects.create(
         display_name=display_name,
-        message=message
+        message=message,
+        dataset_type=dataset_type,
+        reply_to=reply_to
     )
     return JsonResponse({'status': 'ok'})
 
