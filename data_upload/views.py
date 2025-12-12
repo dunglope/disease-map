@@ -418,7 +418,7 @@ def upload_csv(request):
 
     except Exception as e:
         logger.error(f"Upload failed: {e}", exc_info=True)
-        connection.close()
+        connection.close() 
         return JsonResponse({'error': f'Upload failed: {str(e)}'}, status=500)
     
 def discussion(request):

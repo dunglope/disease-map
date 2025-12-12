@@ -1,8 +1,9 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Discussion – NERGAL{% endblock %}
 
 {% block content %}
-<div class="container py-4">
+<div class="container py-4" data-discussion-url="{% url 'discussion' %}">
     <h2 class="mb-4">
         Community Discussion
         <span class="text-primary">
@@ -61,64 +62,5 @@
     </div>
 </div>
 
-<script>
-const displayName = "{{ display_name|escapejs }}";
-
-document.getElementById('msgForm').onsubmit = async e => {
-    e.preventDefault();
-    const input = document.getElementById('messageInput');
-    const msg = input.value.trim();
-    if (!msg) return;
-    const dataset = document.querySelector('input[name="dataset"]').value;
-    const replyToId = document.getElementById('replyToInput').value;
-    await fetch('/api/post-message/', {
-        method: 'POST',
-        body: new URLSearchParams({
-            message: msg, 
-            dataset: dataset,
-            reply_to: replyToId
-        }),
-        headers: {'X-CSRFToken': '{{ csrf_token }}'}
-    });
-    input.value = '';
-    document.getElementById('replyToInput').value = '';
-    document.getElementById('replyIndicator').style.display = 'none';
-    loadMessages();
-};
-
-document.getElementById('cancelReplyBtn').onclick = () => {
-    document.getElementById('replyToInput').value = '';
-    document.getElementById('replyIndicator').style.display = 'none';
-};
-
-function attachReplyListeners() {
-    document.querySelectorAll('.reply-btn').forEach(btn => {
-        btn.onclick = e => {
-            e.preventDefault();
-            const msgId = btn.dataset.msgId;
-            const msgName = btn.dataset.msgName;
-            document.getElementById('replyToInput').value = msgId;
-            document.getElementById('replyName').textContent = msgName;
-            document.getElementById('replyIndicator').style.display = 'block';
-            document.getElementById('messageInput').focus();
-        };
-    });
-}
-
-function loadMessages() {
-    const dataset = new URLSearchParams(window.location.search).get('dataset') || 'general';
-    fetch(`{% url "discussion" %}?dataset=${dataset}`)
-        .then(r => r.text())
-        .then(html => {
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-            document.getElementById('chatArea').innerHTML = 
-                doc.getElementById('chatArea').innerHTML;
-            attachReplyListeners();
-            document.getElementById('chatArea').scrollTop = document.getElementById('chatArea').scrollHeight;
-        });
-}
-setInterval(loadMessages, 4000);
-loadMessages();
-</script>
+<script src="{% static 'js/discussion.js' %}"></script>
 {% endblock %}
